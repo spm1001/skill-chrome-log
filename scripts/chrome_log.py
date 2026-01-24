@@ -160,6 +160,7 @@ def read_requests(limit: int = None, reverse: bool = False) -> Iterator[dict]:
         return
 
     lines = []
+    count = 0
     with open(LOG_FILE) as f:
         for line in f:
             try:
@@ -168,7 +169,8 @@ def read_requests(limit: int = None, reverse: bool = False) -> Iterator[dict]:
                     lines.append(req)
                 else:
                     yield req
-                    if limit and len(lines) >= limit:
+                    count += 1
+                    if limit and count >= limit:
                         break
             except json.JSONDecodeError:
                 continue
@@ -440,27 +442,30 @@ def cmd_unpause(args):
 def cmd_tail(args):
     """Show recent requests."""
     if not LOG_FILE.exists():
-        print("No requests captured yet.")
-        if not is_daemon_running():
-            print("Daemon is not running. Start with: chrome-log start")
+        if getattr(args, 'json', False):
+            print('[]')
+        else:
+            print("No requests captured yet.")
+            if not is_daemon_running():
+                print("Daemon is not running. Start with: chrome-log start")
         return 0
 
     n = args.n or 20
-    count = 0
+    results = list(read_requests(limit=n, reverse=True))
 
-    for req in read_requests(limit=n, reverse=True):
-        print(format_request_summary(req))
-        count += 1
-
-    if count == 0:
-        print("No requests captured yet")
+    if getattr(args, 'json', False):
+        print(json.dumps(results, indent=2, default=str))
+    else:
+        for req in results:
+            print(format_request_summary(req))
+        if not results:
+            print("No requests captured yet")
     return 0
 
 
 def cmd_list(args):
     """List requests with filtering."""
     limit = args.limit or 50
-    count = 0
 
     requests = read_requests(reverse=True)
     requests = filter_requests(
@@ -471,16 +476,22 @@ def cmd_list(args):
         tab_filter=args.tab
     )
 
+    # Collect results up to limit
+    results = []
     for req in requests:
-        print(format_request_summary(req))
-        count += 1
-        if count >= limit:
+        results.append(req)
+        if len(results) >= limit:
             break
 
-    if count == 0:
-        print("No matching requests")
-    elif count >= limit:
-        print(f"\n(showing {limit} of more results, use --limit to see more)")
+    if getattr(args, 'json', False):
+        print(json.dumps(results, indent=2, default=str))
+    else:
+        for req in results:
+            print(format_request_summary(req))
+        if not results:
+            print("No matching requests")
+        elif len(results) >= limit:
+            print(f"\n(showing {limit} of more results, use --limit to see more)")
 
     return 0
 
@@ -683,6 +694,7 @@ def main():
     # tail
     tail_parser = subparsers.add_parser('tail', help='Show recent requests')
     tail_parser.add_argument('-n', type=int, default=20, help='Number of requests')
+    tail_parser.add_argument('--json', '-j', action='store_true', help='JSON output')
 
     # list
     list_parser = subparsers.add_parser('list', help='List requests')
@@ -691,6 +703,7 @@ def main():
     list_parser.add_argument('--status', '-s', help='Filter by status (200, 4xx, 5xx)')
     list_parser.add_argument('--tab', '-t', help='Filter by tab URL')
     list_parser.add_argument('--limit', '-l', type=int, default=50, help='Max results')
+    list_parser.add_argument('--json', '-j', action='store_true', help='JSON output')
 
     # show
     show_parser = subparsers.add_parser('show', help='Show request details')

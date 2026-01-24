@@ -82,8 +82,8 @@ chrome-log list --filter "/api/" --method POST --limit 20
 # GraphQL
 chrome-log list --filter "graphql" --limit 10
 
-# Authenticated calls
-chrome-log list --filter "Authorization" --limit 10
+# Auth endpoints
+chrome-log list --filter "auth\|login\|oauth\|token" --limit 10
 ```
 
 ### Debug errors

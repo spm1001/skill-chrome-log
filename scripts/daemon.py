@@ -65,12 +65,10 @@ SKIP_URL_PATTERNS = [
     'sentry.io',
     'hotjar',
     'clarity.ms',
-    # Static assets
-    '.css',
-    '.woff',
-    '.woff2',
-    '.svg',
 ]
+
+# Skip these file extensions (static assets) - checked separately
+SKIP_EXTENSIONS = ['.css', '.woff', '.woff2', '.svg', '.ico']
 
 # Skip these MIME types (binary)
 SKIP_MIME_TYPES = [
@@ -142,8 +140,15 @@ class ChromeLogDaemon:
         return self.pause_file.exists()
 
     def should_skip_url(self, url: str) -> bool:
-        """Check if URL should be skipped (tracking, etc)."""
-        return any(pattern in url for pattern in SKIP_URL_PATTERNS)
+        """Check if URL should be skipped (tracking, static assets, etc)."""
+        # Check URL patterns (tracking/ads)
+        if any(pattern in url for pattern in SKIP_URL_PATTERNS):
+            return True
+        # Check file extensions (match end of path, before query string)
+        path = url.split('?')[0]
+        if any(path.endswith(ext) for ext in SKIP_EXTENSIONS):
+            return True
+        return False
 
     def should_skip_mime(self, mime: str | None) -> bool:
         """Check if MIME type should be skipped (binary)."""
@@ -334,8 +339,8 @@ class ChromeLogDaemon:
         mime = response.get('mimeType', '')
         status = response.get('status', 0)
 
-        # Skip failed requests (4xx, 5xx) and binary
-        if status >= 400 or self.should_skip_mime(mime):
+        # Skip binary responses (keep 4xx/5xx - useful for API debugging)
+        if self.should_skip_mime(mime):
             self.store.complete_request(request_id)
             return
 
