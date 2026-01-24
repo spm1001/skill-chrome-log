@@ -73,6 +73,8 @@ Each line in `requests.jsonl`:
 
 **Hue-shifted icon:** Chrome Debug uses a 180° hue-shifted Chrome icon (cyan/magenta instead of red/green/blue) for visual distinction. Not purple, not inverted - specifically hue rotation via ImageMagick `-modulate 100,100,50`.
 
+**Chrome Debug is not a default browser:** The Info.plist deliberately omits URL handlers (`CFBundleURLTypes`). Chrome Debug is a developer tool you launch explicitly via `chrome-debug` or `browse URL`, not a browser for daily use. Making it a default browser candidate would mean every clicked link opens with debug capture running.
+
 ## Troubleshooting
 
 **Orphaned launchd plists:** If you previously used an older version, you may have orphaned `com.modha.chrome-log.plist` in `~/Library/LaunchAgents/`. The current version uses `local.chrome-log.plist`. Safe to delete the old one:
