@@ -65,6 +65,7 @@ class RequestStore:
 
     def __init__(self):
         self.requests: dict[str, dict] = {}
+        self.response_chunks: dict[str, list] = {}  # For streaming responses
 
     def start_request(self, request_id: str, data: dict):
         self.requests[request_id] = {
@@ -72,12 +73,24 @@ class RequestStore:
             'ts': datetime.now(timezone.utc).isoformat(),
             **data
         }
+        self.response_chunks[request_id] = []
+
+    def append_chunk(self, request_id: str, data: str):
+        """Append a data chunk for streaming responses."""
+        if request_id in self.response_chunks:
+            self.response_chunks[request_id].append(data)
+
+    def get_chunks(self, request_id: str) -> str:
+        """Get concatenated chunks for a request."""
+        chunks = self.response_chunks.get(request_id, [])
+        return ''.join(chunks)
 
     def update_request(self, request_id: str, data: dict):
         if request_id in self.requests:
             self.requests[request_id].update(data)
 
     def complete_request(self, request_id: str) -> dict | None:
+        self.response_chunks.pop(request_id, None)  # Clean up chunks
         return self.requests.pop(request_id, None)
 
     def get_request(self, request_id: str) -> dict | None:
@@ -154,9 +167,12 @@ class ChromeLogDaemon:
     async def enable_network(self, session_id: str):
         """Enable network capture for a session."""
         try:
+            # Large buffer sizes to prevent "evicted from inspector cache" errors
+            # for streaming responses (like GenAI API)
             await self.send_command('Network.enable', {
-                'maxTotalBufferSize': 10000000,
-                'maxResourceBufferSize': 5000000
+                'maxTotalBufferSize': 100000000,      # 100MB total
+                'maxResourceBufferSize': 50000000,   # 50MB per resource
+                'maxPostDataSize': 65536             # 64KB POST data
             }, session_id)
             log.info(f"Network enabled for session {session_id[:8]}...")
         except Exception as e:
@@ -168,6 +184,13 @@ class ChromeLogDaemon:
             result = await self.send_command('Network.getResponseBody', {
                 'requestId': request_id
             }, session_id)
+
+            # Check for CDP error
+            if 'error' in result:
+                error_msg = result['error'].get('message', 'Unknown error')
+                if "No resource with given identifier" not in error_msg:
+                    log.debug(f"CDP error getting body for {request_id}: {error_msg}")
+                return None
 
             if 'result' in result:
                 body = result['result'].get('body', '')
@@ -187,9 +210,10 @@ class ChromeLogDaemon:
                     if len(body) > MAX_BODY_SIZE:
                         return body[:MAX_BODY_SIZE] + f"\n[truncated: {len(body)} bytes total]"
                     return body
+        except asyncio.TimeoutError:
+            log.debug(f"Timeout getting body for {request_id}")
         except Exception as e:
-            if "No resource with given identifier" not in str(e):
-                log.debug(f"Failed to get body for {request_id}: {e}")
+            log.debug(f"Exception getting body for {request_id}: {e}")
         return None
 
     def write_request(self, request: dict):
@@ -264,6 +288,20 @@ class ChromeLogDaemon:
             'responseHeaders': dict(response.get('headers', {}))
         })
 
+    def handle_data_received(self, params: dict, session_id: str):
+        """Handle Network.dataReceived event (streaming response chunks)."""
+        request_id = params.get('requestId')
+        # The actual data is base64 encoded in params, but CDP doesn't give us
+        # the raw data here - we need to use Network.takeResponseBodyAsStream
+        # or rely on getResponseBody. However, we track that data was received.
+        data_length = params.get('dataLength', 0)
+
+        request = self.store.get_request(request_id)
+        if request:
+            # Track that we're receiving streaming data
+            request['_streaming'] = True
+            request['_received_length'] = request.get('_received_length', 0) + data_length
+
     def handle_loading_finished(self, params: dict, session_id: str):
         """Handle Network.loadingFinished event."""
         request_id = params.get('requestId')
@@ -282,10 +320,20 @@ class ChromeLogDaemon:
         """Complete a request by fetching body and writing to log."""
         # Try to get response body
         mime = request.get('mime', '')
+        was_streaming = request.get('_streaming', False)
+
         if not self.should_skip_mime(mime):
             body = await self.get_response_body(request_id, session_id)
             if body:
                 request['responseBody'] = body
+            elif was_streaming:
+                # Log that we missed a streaming response
+                received = request.get('_received_length', 0)
+                log.debug(f"Streaming response body not captured: {request.get('url', '')[:60]} ({received} bytes received)")
+
+        # Clean up internal tracking fields
+        request.pop('_streaming', None)
+        request.pop('_received_length', None)
 
         # Complete and write
         completed = self.store.complete_request(request_id)
@@ -364,6 +412,8 @@ class ChromeLogDaemon:
             self.handle_request_will_be_sent(params, session_id)
         elif method == 'Network.responseReceived':
             self.handle_response_received(params, session_id)
+        elif method == 'Network.dataReceived':
+            self.handle_data_received(params, session_id)
         elif method == 'Network.loadingFinished':
             self.handle_loading_finished(params, session_id)
         elif method == 'Network.loadingFailed':
