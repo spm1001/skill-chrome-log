@@ -98,6 +98,7 @@ class ChromeLogDaemon:
         self.msg_id = 0
         self.pending_commands: dict[int, asyncio.Future] = {}
         self.ws: websockets.WebSocketClientProtocol | None = None
+        self.receiver_task: asyncio.Task | None = None
 
     @property
     def is_paused(self) -> bool:
@@ -112,6 +113,18 @@ class ChromeLogDaemon:
         if not mime:
             return False
         return any(mime.startswith(pattern) for pattern in SKIP_MIME_TYPES)
+
+    async def message_receiver(self):
+        """Background task to receive messages from websocket."""
+        try:
+            async for message in self.ws:
+                self.handle_message(message)
+        except websockets.ConnectionClosed:
+            log.warning("Chrome disconnected")
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            log.error(f"Receiver error: {e}")
 
     async def send_command(self, method: str, params: dict = None, session_id: str = None) -> dict:
         """Send CDP command and wait for response."""
@@ -251,7 +264,7 @@ class ChromeLogDaemon:
             'responseHeaders': dict(response.get('headers', {}))
         })
 
-    async def handle_loading_finished(self, params: dict, session_id: str):
+    def handle_loading_finished(self, params: dict, session_id: str):
         """Handle Network.loadingFinished event."""
         request_id = params.get('requestId')
         encoded_length = params.get('encodedDataLength', 0)
@@ -262,6 +275,11 @@ class ChromeLogDaemon:
 
         request['size'] = encoded_length
 
+        # Complete request in background to avoid blocking message receiver
+        asyncio.create_task(self._complete_request(request_id, session_id, request))
+
+    async def _complete_request(self, request_id: str, session_id: str, request: dict):
+        """Complete a request by fetching body and writing to log."""
         # Try to get response body
         mime = request.get('mime', '')
         if not self.should_skip_mime(mime):
@@ -289,7 +307,7 @@ class ChromeLogDaemon:
                 completed.pop('session_id', None)
                 self.write_request(completed)
 
-    async def handle_attached_to_target(self, params: dict):
+    def handle_attached_to_target(self, params: dict):
         """Handle Target.attachedToTarget event."""
         session_id = params.get('sessionId')
         target_info = params.get('targetInfo', {})
@@ -300,7 +318,8 @@ class ChromeLogDaemon:
         self.sessions[session_id] = target_info
         log.info(f"Attached to: {target_info.get('url', 'unknown')[:60]}")
 
-        await self.enable_network(session_id)
+        # Enable network in background to avoid blocking the message receiver
+        asyncio.create_task(self.enable_network(session_id))
 
     def handle_detached_from_target(self, params: dict):
         """Handle Target.detachedFromTarget event."""
@@ -320,7 +339,7 @@ class ChromeLogDaemon:
                 log.debug(f"Target navigated to: {target_info.get('url', '')[:60]}")
                 break
 
-    async def handle_message(self, message: str):
+    def handle_message(self, message: str):
         """Handle incoming CDP message."""
         try:
             data = json.loads(message)
@@ -346,11 +365,11 @@ class ChromeLogDaemon:
         elif method == 'Network.responseReceived':
             self.handle_response_received(params, session_id)
         elif method == 'Network.loadingFinished':
-            await self.handle_loading_finished(params, session_id)
+            self.handle_loading_finished(params, session_id)
         elif method == 'Network.loadingFailed':
             self.handle_loading_failed(params, session_id)
         elif method == 'Target.attachedToTarget':
-            await self.handle_attached_to_target(params)
+            self.handle_attached_to_target(params)
         elif method == 'Target.detachedFromTarget':
             self.handle_detached_from_target(params)
         elif method == 'Target.targetInfoChanged':
@@ -374,48 +393,52 @@ class ChromeLogDaemon:
         async with websockets.connect(ws_url, max_size=50 * 1024 * 1024) as ws:
             self.ws = ws
 
-            # Enable auto-attach for new targets
-            await self.send_command('Target.setAutoAttach', {
-                'autoAttach': True,
-                'waitForDebuggerOnStart': False,
-                'flatten': True
-            })
+            # Start message receiver in background
+            self.receiver_task = asyncio.create_task(self.message_receiver())
 
-            # Enable target discovery
-            await self.send_command('Target.setDiscoverTargets', {
-                'discover': True
-            })
+            try:
+                # Enable auto-attach for new targets
+                await self.send_command('Target.setAutoAttach', {
+                    'autoAttach': True,
+                    'waitForDebuggerOnStart': False,
+                    'flatten': True
+                })
 
-            # Get existing targets
-            result = await self.send_command('Target.getTargets')
-            targets = result.get('result', {}).get('targetInfos', [])
+                # Enable target discovery
+                await self.send_command('Target.setDiscoverTargets', {
+                    'discover': True
+                })
 
-            for target in targets:
-                if target.get('type') == 'page':
+                # Get existing targets
+                result = await self.send_command('Target.getTargets')
+                targets = result.get('result', {}).get('targetInfos', [])
+
+                for target in targets:
+                    if target.get('type') == 'page':
+                        try:
+                            attach_result = await self.send_command('Target.attachToTarget', {
+                                'targetId': target['targetId'],
+                                'flatten': True
+                            })
+                            session_id = attach_result.get('result', {}).get('sessionId')
+                            if session_id:
+                                self.sessions[session_id] = target
+                                await self.enable_network(session_id)
+                        except Exception as e:
+                            log.warning(f"Failed to attach to {target.get('url', '')[:40]}: {e}")
+
+                log.info(f"Attached to {len(self.sessions)} tabs, capturing...")
+
+                # Wait for receiver to finish (connection closed or error)
+                await self.receiver_task
+
+            finally:
+                if self.receiver_task and not self.receiver_task.done():
+                    self.receiver_task.cancel()
                     try:
-                        attach_result = await self.send_command('Target.attachToTarget', {
-                            'targetId': target['targetId'],
-                            'flatten': True
-                        })
-                        session_id = attach_result.get('result', {}).get('sessionId')
-                        if session_id:
-                            self.sessions[session_id] = target
-                            await self.enable_network(session_id)
-                    except Exception as e:
-                        log.warning(f"Failed to attach to {target.get('url', '')[:40]}: {e}")
-
-            log.info(f"Attached to {len(self.sessions)} tabs, capturing...")
-
-            # Message loop
-            while self.running:
-                try:
-                    message = await asyncio.wait_for(ws.recv(), timeout=1.0)
-                    await self.handle_message(message)
-                except asyncio.TimeoutError:
-                    continue
-                except websockets.ConnectionClosed:
-                    log.warning("Chrome disconnected")
-                    break
+                        await self.receiver_task
+                    except asyncio.CancelledError:
+                        pass
 
     def write_pid(self):
         """Write PID file."""
@@ -430,6 +453,9 @@ class ChromeLogDaemon:
         """Handle shutdown signals."""
         log.info(f"Received signal {signum}, shutting down...")
         self.running = False
+        # Cancel the receiver task to break out of the connection
+        if self.receiver_task and not self.receiver_task.done():
+            self.receiver_task.cancel()
 
     async def run(self):
         """Main daemon loop."""
