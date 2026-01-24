@@ -2,33 +2,47 @@
 
 Capture and analyze Chrome network requests for reverse-engineering APIs.
 
+## Quick Start
+
+```bash
+chrome-debug           # Start Chrome with debugging (purple icon)
+chrome-log start       # Start capture daemon (opens status page)
+# Browse in Chrome Debug, then query:
+chrome-log tail -n 10  # Recent requests
+```
+
 ## Triggers
 
-- "network log", "capture API", "what requests"
-- "reverse engineer", "chrome debug"
-- "what API is this using", "how does this site work"
+Invoke this skill when the user asks about:
+- "what API calls", "what endpoint", "what request"
+- "show network traffic", "network log", "captured requests"
+- "how does this site call", "what backend is it hitting"
+- "reverse engineer this API", "discover the API"
+- "chrome debug", "capture traffic"
 
-## Prerequisites
+## What Claude Should Know
 
-Before using this skill:
-
-1. **Chrome Debug must be running**: `chrome-debug` (purple icon in Dock)
-2. **Daemon must be started**: `chrome-log start`
-
-Check with: `chrome-log doctor`
+| Fact | Detail |
+|------|--------|
+| CDP port | 9222 (Chrome Debug) |
+| Status page | http://localhost:9223 |
+| Log file | `~/.chrome-debug/logs/requests.jsonl` |
+| Capture | Skips binary (images, fonts), truncates bodies >100KB |
+| Chrome Debug | Separate profile, inverted icon (cyan/magenta) |
 
 ## Commands
 
 ```bash
 # Lifecycle
-chrome-log start              # Start capture daemon
+chrome-log start              # Start daemon + status page
 chrome-log stop               # Stop daemon
-chrome-log status             # Show running state + stats
-chrome-log pause              # Pause capture (daemon stays up)
+chrome-log status             # Running state + stats
+chrome-log pause              # Pause capture (sensitive browsing)
 chrome-log unpause            # Resume capture
+chrome-log doctor             # Health check with fix commands
 
 # Query
-chrome-log tail [-n 20]       # Recent requests (summary)
+chrome-log tail [-n 20]       # Recent requests
 chrome-log list [OPTIONS]     # Filtered list
   --filter PATTERN            # URL contains pattern
   --method GET|POST|...       # HTTP method
@@ -41,105 +55,93 @@ chrome-log show ID            # Full request details
 
 # Maintenance
 chrome-log clear              # Clear current log
-chrome-log clear --older 7d   # Clear old rotated logs
-chrome-log doctor             # Health check
+chrome-log clear --older 7d   # Clear old entries
 ```
 
 ## Claude Query Patterns
 
-### Start with summary, drill into interesting ones
+### Start broad, then drill down
 
 ```bash
-# 1. Get overview of recent traffic
+# 1. Recent traffic overview
 chrome-log tail -n 30
 
-# 2. Filter to relevant domain
-chrome-log list --filter "api.example.com" --limit 20
+# 2. Filter to domain of interest
+chrome-log list --filter "api.spotify.com" --limit 20
 
-# 3. Drill into specific request
-chrome-log show abc123 --headers --body
+# 3. Inspect specific request
+chrome-log show abc12345 --headers --body
 ```
 
-### Find authentication endpoints
+### Find API endpoints
 
 ```bash
-chrome-log list --filter "auth\|login\|token\|oauth" --method POST
-chrome-log list --filter "Authorization" --limit 10  # Requests with auth headers
-```
+# JSON APIs
+chrome-log list --filter "/api/" --method POST --limit 20
 
-### Discover undocumented APIs
+# GraphQL
+chrome-log list --filter "graphql" --limit 10
 
-```bash
-# Find API-like endpoints
-chrome-log list --filter "/api/\|/v1/\|/v2/" --limit 30
-
-# Find JSON responses
-chrome-log list --filter ".json\|application/json" --limit 30
-
-# Find POST requests (usually mutations)
-chrome-log list --method POST --limit 20
+# Authenticated calls
+chrome-log list --filter "Authorization" --limit 10
 ```
 
 ### Debug errors
 
 ```bash
-chrome-log list --status 4xx --limit 20   # Client errors
-chrome-log list --status 5xx --limit 20   # Server errors
+chrome-log list --status 4xx --limit 10   # Client errors
 chrome-log list --status 401              # Auth failures
+chrome-log list --status 5xx              # Server errors
 ```
 
-## Live Status Page
+## Workflow: Reverse Engineer a Site
+
+1. **Clear logs**: `chrome-log clear`
+2. **Browse target**: Use Chrome Debug, perform the action
+3. **Pause**: `chrome-log pause` (prevent noise from other tabs)
+4. **Query**:
+   ```bash
+   chrome-log list --filter "targetdomain.com" --limit 50
+   chrome-log show <id> --headers --body
+   ```
+5. **Document**: Endpoints, auth patterns, request/response shapes
+
+## Status Page
 
 Open http://localhost:9223 for real-time view:
-- Live request feed (configurable refresh: 2s/5s/10s/manual)
-- Pause/unpause button
-- Tab filter dropdown
-- URL search box
+- Live request feed with auto-refresh
+- Pause/resume button
+- Filter by URL, tab, method
 - Click request to expand details
+- **Tab shows recording state**: red pulse = recording, amber = paused
+- **Tip**: Pin the tab in Chrome Debug - it persists across restarts
+
+## Troubleshooting
+
+Run `chrome-log doctor` - it shows issues with fix commands.
+
+| Issue | Solution |
+|-------|----------|
+| No requests | Check Chrome Debug is running: `chrome-debug` |
+| Connection refused | Start daemon: `chrome-log start` |
+| Missing bodies | Binary skipped, >100KB truncated |
+| Status page blank | Check daemon: `chrome-log status` |
+| Missing cookies | Cookies captured via `Cookie` header and `cookies` field |
 
 ## Anti-Patterns
 
-**Don't dump entire log** — always filter first:
+**Don't dump entire log** - always filter:
 ```bash
-# Bad: dumps everything
+# Bad
 chrome-log list
 
-# Good: focused query
+# Good
 chrome-log list --filter "api" --method POST --limit 10
 ```
 
-**Don't capture sensitive sites** — pause when logging into banking, etc:
+**Pause for sensitive sites** (banking, email):
 ```bash
 chrome-log pause
 # Do sensitive browsing
 chrome-log unpause
 ```
-
-## Workflow: Reverse Engineer a Site
-
-1. **Start clean**: `chrome-log clear && chrome-log start`
-2. **Browse target**: Navigate to the site, perform the action you want to understand
-3. **Pause**: `chrome-log pause` (prevents noise from other tabs)
-4. **Analyze**:
-   ```bash
-   chrome-log list --filter "targetdomain.com" --limit 50
-   chrome-log show <interesting-id> --headers --body
-   ```
-5. **Document**: Note the endpoints, auth patterns, request/response shapes
-
-## Log Location
-
-`~/.chrome-debug/logs/requests.jsonl` — append-only, auto-rotates at 50MB (keeps 3 files)
-
-## Troubleshooting
-
-```bash
-chrome-log doctor    # Checks Chrome, daemon, permissions
-```
-
-| Issue | Solution |
-|-------|----------|
-| No requests captured | Is Chrome Debug running? (`chrome-debug`) |
-| "Connection refused" | Start daemon: `chrome-log start` |
-| Missing bodies | Binary responses are skipped; bodies > 100KB truncated |
-| Status page blank | Check daemon is running: `chrome-log status` |

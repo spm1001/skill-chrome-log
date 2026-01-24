@@ -6,6 +6,7 @@
 # 1. Uses a separate Chrome profile (~/.chrome-debug/Default)
 # 2. Enables remote debugging on port 9222
 # 3. Runs Chrome in the background
+# 4. Opens status page if this is a fresh launch
 #
 # Usage:
 #   chrome-debug          # Launch Chrome
@@ -16,6 +17,7 @@ set -e
 
 CHROME_APP="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 DEBUG_PORT=9222
+STATUS_PORT=9223
 USER_DATA_DIR="$HOME/.chrome-debug"
 
 # Check if Chrome is already running in debug mode
@@ -59,6 +61,8 @@ echo "Starting Chrome in debug mode..."
 for i in {1..30}; do
     if check_running; then
         echo "Chrome started on port $DEBUG_PORT"
+        # Start daemon (status page can be pinned - persists across restarts)
+        "$HOME/.claude/scripts/chrome-log" start --no-open 2>/dev/null &
         exit 0
     fi
     sleep 0.5

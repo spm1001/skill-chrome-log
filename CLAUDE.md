@@ -29,7 +29,7 @@ uv run python scripts/chrome-log.py status  # Test CLI
 
 ## CDP Domains Used
 
-- `Network`: Request/response capture
+- `Network`: Request/response capture (including ExtraInfo events for cookies)
 - `Target`: Multi-tab management (attachedToTarget)
 
 ## Log Format
@@ -47,6 +47,7 @@ Each line in `requests.jsonl`:
   "size": 1234,
   "requestHeaders": {...},
   "responseHeaders": {...},
+  "cookies": [{"name": "...", "value": "..."}],
   "requestBody": "...",
   "responseBody": "..."
 }

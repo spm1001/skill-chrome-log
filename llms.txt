@@ -1,0 +1,33 @@
+# skill-chrome-log
+
+Chrome network request logger for reverse-engineering APIs.
+
+## What it does
+
+Captures HTTP requests/responses from Chrome via Chrome DevTools Protocol (CDP).
+Writes to JSONL for querying. Includes a live status page.
+
+## Key files
+
+- scripts/daemon.py - CDP capture daemon
+- scripts/chrome_log.py - CLI for querying logs
+- scripts/chrome-debug.sh - Launches Chrome with debugging enabled
+- scripts/server.py - Status page server
+- SKILL.md - Claude Code skill definition
+
+## Usage
+
+1. Launch Chrome Debug: `chrome-debug`
+2. Start capture: `chrome-log start`
+3. Query: `chrome-log tail`, `chrome-log list --filter "api"`
+
+## Requirements
+
+- macOS (uses launchd)
+- Google Chrome
+- Python 3.10+
+- websockets package
+
+## License
+
+MIT

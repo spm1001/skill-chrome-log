@@ -34,11 +34,12 @@ log = logging.getLogger(__name__)
 # Constants
 CDP_PORT = 9222
 MAX_BODY_SIZE = 100 * 1024  # 100KB
-MAX_LOG_SIZE = 50 * 1024 * 1024  # 50MB
+MAX_LOG_SIZE = 100 * 1024 * 1024  # 100MB
 MAX_ROTATED_FILES = 3
 
-# Skip these URL patterns (tracking noise)
+# Skip these URL patterns (tracking/ads/noise)
 SKIP_URL_PATTERNS = [
+    # Google
     'google-analytics.com',
     'doubleclick.net',
     'googlesyndication.com',
@@ -46,6 +47,29 @@ SKIP_URL_PATTERNS = [
     'play.google.com/log',
     'fonts.googleapis.com',
     'fonts.gstatic.com',
+    'pagead',
+    # Facebook
+    'facebook.com/tr',
+    'connect.facebook',
+    # Generic tracking
+    'analytics',
+    'tracking',
+    'telemetry',
+    'beacon',
+    'pixel',
+    'adservice',
+    'adsystem',
+    'metrics',
+    '.ads.',
+    # Error reporting
+    'sentry.io',
+    'hotjar',
+    'clarity.ms',
+    # Static assets
+    '.css',
+    '.woff',
+    '.woff2',
+    '.svg',
 ]
 
 # Skip these MIME types (binary)
@@ -271,19 +295,52 @@ class ChromeLogDaemon:
             'requestBody': request.get('postData')
         })
 
+    def handle_request_will_be_sent_extra_info(self, params: dict, session_id: str):
+        """Handle Network.requestWillBeSentExtraInfo event (includes cookies)."""
+        request_id = params.get('requestId')
+        headers = params.get('headers', {})
+
+        request = self.store.get_request(request_id)
+        if request:
+            # Merge extra headers (which includes Cookie)
+            existing_headers = request.get('requestHeaders', {})
+            existing_headers.update(headers)
+            request['requestHeaders'] = existing_headers
+
+            # Also capture associated cookies separately
+            cookies = params.get('associatedCookies', [])
+            if cookies:
+                request['cookies'] = [
+                    {'name': c['cookie']['name'], 'value': c['cookie']['value']}
+                    for c in cookies if not c.get('blockedReasons')
+                ]
+
+    def handle_response_received_extra_info(self, params: dict, session_id: str):
+        """Handle Network.responseReceivedExtraInfo event (includes Set-Cookie)."""
+        request_id = params.get('requestId')
+        headers = params.get('headers', {})
+
+        request = self.store.get_request(request_id)
+        if request:
+            # Merge extra headers (which includes Set-Cookie)
+            existing_headers = request.get('responseHeaders', {})
+            existing_headers.update(headers)
+            request['responseHeaders'] = existing_headers
+
     def handle_response_received(self, params: dict, session_id: str):
         """Handle Network.responseReceived event."""
         request_id = params.get('requestId')
         response = params.get('response', {})
         mime = response.get('mimeType', '')
+        status = response.get('status', 0)
 
-        if self.should_skip_mime(mime):
-            # Remove from store, don't capture
+        # Skip failed requests (4xx, 5xx) and binary
+        if status >= 400 or self.should_skip_mime(mime):
             self.store.complete_request(request_id)
             return
 
         self.store.update_request(request_id, {
-            'status': response.get('status'),
+            'status': status,
             'mime': mime,
             'responseHeaders': dict(response.get('headers', {}))
         })
@@ -343,17 +400,10 @@ class ChromeLogDaemon:
             self.write_request(completed)
 
     def handle_loading_failed(self, params: dict, session_id: str):
-        """Handle Network.loadingFailed event."""
+        """Handle Network.loadingFailed event - skip failed requests entirely."""
         request_id = params.get('requestId')
-        error = params.get('errorText', 'Unknown error')
-
-        request = self.store.get_request(request_id)
-        if request:
-            request['error'] = error
-            completed = self.store.complete_request(request_id)
-            if completed:
-                completed.pop('session_id', None)
-                self.write_request(completed)
+        # Just clean up, don't log failures (blocked ads, network errors, etc)
+        self.store.complete_request(request_id)
 
     def handle_attached_to_target(self, params: dict):
         """Handle Target.attachedToTarget event."""
@@ -410,8 +460,12 @@ class ChromeLogDaemon:
 
         if method == 'Network.requestWillBeSent':
             self.handle_request_will_be_sent(params, session_id)
+        elif method == 'Network.requestWillBeSentExtraInfo':
+            self.handle_request_will_be_sent_extra_info(params, session_id)
         elif method == 'Network.responseReceived':
             self.handle_response_received(params, session_id)
+        elif method == 'Network.responseReceivedExtraInfo':
+            self.handle_response_received_extra_info(params, session_id)
         elif method == 'Network.dataReceived':
             self.handle_data_received(params, session_id)
         elif method == 'Network.loadingFinished':
@@ -522,9 +576,9 @@ class ChromeLogDaemon:
                 except Exception as e:
                     log.error(f"Connection error: {e}")
 
-                if self.running:
-                    log.info("Reconnecting in 5 seconds...")
-                    await asyncio.sleep(5)
+                # Exit when Chrome disconnects - daemon auto-starts with Chrome Debug
+                log.info("Chrome disconnected, shutting down")
+                self.running = False
         finally:
             self.remove_pid()
             log.info("Daemon stopped")

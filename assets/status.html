@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chrome Network Log</title>
+    <title>Chrome Log</title>
+    <link id="favicon" rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%23888'/></svg>">
     <style>
         :root {
             --bg: #0f0f1a;
@@ -370,6 +371,7 @@
         let expandedId = null;
         let isPaused = false;
         let refreshInterval = null;
+        let faviconAnimationFrame = null;
 
         // Elements
         const requestList = document.getElementById('request-list');
@@ -383,6 +385,48 @@
         const filterUrl = document.getElementById('filter-url');
         const filterTab = document.getElementById('filter-tab');
         const filterMethod = document.getElementById('filter-method');
+        const favicon = document.getElementById('favicon');
+
+        // Favicon animation
+        function updateFavicon(paused) {
+            if (faviconAnimationFrame) {
+                cancelAnimationFrame(faviconAnimationFrame);
+                faviconAnimationFrame = null;
+            }
+
+            if (paused) {
+                // Static amber circle when paused
+                favicon.href = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%23f59e0b'/></svg>";
+                document.title = 'Paused | Chrome Log';
+            } else {
+                // Animated red pulse when recording
+                document.title = 'Recording | Chrome Log';
+                animateFavicon();
+            }
+        }
+
+        function animateFavicon() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 32;
+            canvas.height = 32;
+            const ctx = canvas.getContext('2d');
+
+            function draw() {
+                const t = Date.now() / 1000;
+                // Gentle sine pulse: opacity varies between 0.5 and 1.0
+                const pulse = 0.75 + 0.25 * Math.sin(t * 2);
+
+                ctx.clearRect(0, 0, 32, 32);
+                ctx.beginPath();
+                ctx.arc(16, 16, 14, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(220, 38, 38, ${pulse})`;
+                ctx.fill();
+
+                favicon.href = canvas.toDataURL('image/png');
+                faviconAnimationFrame = requestAnimationFrame(draw);
+            }
+            draw();
+        }
 
         // Format bytes
         function formatSize(bytes) {
@@ -518,22 +562,53 @@
             return div.innerHTML;
         }
 
+        // Connection state
+        let isConnected = true;
+
         // Fetch status
         async function fetchStatus() {
             try {
                 const resp = await fetch('/api/status');
                 const data = await resp.json();
 
+                // Reconnected!
+                if (!isConnected) {
+                    isConnected = true;
+                    document.title = 'Chrome Log';
+                    refreshLabel.textContent = 'Reconnected';
+                    setTimeout(() => {
+                        refreshLabel.textContent = isPaused ? 'Paused' : 'Auto-refresh';
+                    }, 2000);
+                }
+
+                const wasRunning = !isPaused;
                 isPaused = data.paused;
                 pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
                 pauseBtn.classList.toggle('paused', isPaused);
                 refreshDot.classList.toggle('paused', isPaused);
                 refreshLabel.textContent = isPaused ? 'Paused' : 'Auto-refresh';
 
+                // Update favicon when state changes
+                if (wasRunning !== !isPaused || !faviconAnimationFrame) {
+                    updateFavicon(isPaused);
+                }
+
                 requestCount.textContent = data.requestCount.toLocaleString();
                 logSize.textContent = formatSize(data.logSize);
             } catch (e) {
-                console.error('Failed to fetch status:', e);
+                // Disconnected - show state and keep retrying
+                if (isConnected) {
+                    isConnected = false;
+                    document.title = 'Disconnected | Chrome Log';
+                    refreshLabel.textContent = 'Disconnected - retrying...';
+                    refreshDot.classList.add('paused');
+                    // Update favicon to grey
+                    if (faviconAnimationFrame) {
+                        cancelAnimationFrame(faviconAnimationFrame);
+                        faviconAnimationFrame = null;
+                    }
+                    favicon.href = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%23666'/></svg>";
+                }
             }
         }
 

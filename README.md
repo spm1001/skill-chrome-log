@@ -6,9 +6,9 @@ Chrome network request logger for reverse-engineering APIs. Background daemon ca
 
 ```bash
 # 1. Clone and install
-git clone https://github.com/spm1001/skill-chrome-log ~/Repos/skill-chrome-log
-cd ~/Repos/skill-chrome-log
-scripts/install.sh
+git clone https://github.com/spm1001/skill-chrome-log
+cd skill-chrome-log
+./scripts/install.sh
 
 # 2. Source shell config (or restart terminal)
 source ~/.zshrc
@@ -85,8 +85,8 @@ chrome-log clear --older 7d  # Clear logs older than 7 days
 |------|---------|
 | `~/.chrome-debug/` | Chrome debug profile + logs |
 | `~/.chrome-debug/logs/requests.jsonl` | Captured requests |
-| `~/.chrome-debug-launcher.app/` | Debug Chrome launcher (Dock icon) |
-| `~/Library/LaunchAgents/com.modha.chrome-log.plist` | Daemon config |
+| `~/Applications/Chrome Debug.app` | Debug Chrome launcher (Dock icon) |
+| `~/Library/LaunchAgents/local.chrome-log.plist` | Daemon config |
 
 ## Troubleshooting
 

@@ -35,7 +35,7 @@ LOG_FILE = LOG_DIR / 'requests.jsonl'
 PAUSE_FILE = LOG_DIR / '.paused'
 PID_FILE = CHROME_DEBUG_DIR / '.daemon.pid'
 DAEMON_LOG = LOG_DIR / 'daemon.log'
-PLIST_NAME = 'com.modha.chrome-log'
+PLIST_NAME = 'local.chrome-log'
 PLIST_PATH = Path.home() / 'Library' / 'LaunchAgents' / f'{PLIST_NAME}.plist'
 CDP_PORT = 9222
 STATUS_PORT = 9223
@@ -87,6 +87,24 @@ def is_status_server_running() -> bool:
 def is_paused() -> bool:
     """Check if capture is paused."""
     return PAUSE_FILE.exists()
+
+
+def require_chrome_debug() -> bool:
+    """Check Chrome is running, print helpful error if not. Returns True if running."""
+    if is_chrome_debug_running():
+        return True
+    print("Chrome Debug is not running.")
+    print("Start it with: chrome-debug")
+    return False
+
+
+def require_daemon() -> bool:
+    """Check daemon is running, print helpful error if not. Returns True if running."""
+    if is_daemon_running():
+        return True
+    print("Daemon is not running.")
+    print("Start it with: chrome-log start")
+    return False
 
 
 def get_log_stats() -> dict:
@@ -268,11 +286,10 @@ def cmd_start(args):
     """Start daemon and status server."""
     if is_daemon_running():
         print("Daemon is already running")
+        print(f"Status page: http://localhost:{STATUS_PORT}/")
         return 0
 
-    if not is_chrome_debug_running():
-        print("Chrome is not running in debug mode.")
-        print("Start it with: chrome-debug")
+    if not require_chrome_debug():
         return 1
 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -285,6 +302,23 @@ def cmd_start(args):
     subprocess.run(['launchctl', 'load', str(PLIST_PATH)], capture_output=True)
     subprocess.run(['launchctl', 'start', PLIST_NAME], capture_output=True)
 
+    # Kill any stale server on the port
+    try:
+        result = subprocess.run(
+            ['lsof', '-ti', f':{STATUS_PORT}'],
+            capture_output=True, text=True
+        )
+        if result.stdout.strip():
+            for pid in result.stdout.strip().split('\n'):
+                try:
+                    os.kill(int(pid), 9)
+                except (ValueError, OSError):
+                    pass
+            import time
+            time.sleep(0.5)
+    except Exception:
+        pass
+
     # Start status server
     server_script = get_script_dir() / 'server.py'
     subprocess.Popen(
@@ -295,7 +329,19 @@ def cmd_start(args):
     )
 
     print("Daemon started")
-    print(f"Status page: http://localhost:{STATUS_PORT}/")
+    status_url = f"http://localhost:{STATUS_PORT}/"
+    print(f"Status page: {status_url}")
+
+    # Auto-open status page unless suppressed
+    if not getattr(args, 'no_open', False):
+        # Wait briefly for server to start
+        import time
+        for _ in range(10):
+            if is_status_server_running():
+                subprocess.run(['open', status_url], capture_output=True)
+                break
+            time.sleep(0.2)
+
     return 0
 
 
@@ -393,6 +439,12 @@ def cmd_unpause(args):
 
 def cmd_tail(args):
     """Show recent requests."""
+    if not LOG_FILE.exists():
+        print("No requests captured yet.")
+        if not is_daemon_running():
+            print("Daemon is not running. Start with: chrome-log start")
+        return 0
+
     n = args.n or 20
     count = 0
 
@@ -512,33 +564,37 @@ def cmd_doctor(args):
     print("Chrome Log Doctor")
     print("=" * 40)
 
-    issues = []
+    has_issues = False
 
     # Check Chrome
     if is_chrome_debug_running():
         print("[OK] Chrome running on debug port")
     else:
         print("[!!] Chrome not running in debug mode")
-        issues.append("Start Chrome with: chrome-debug")
+        print("     → Run: chrome-debug")
+        has_issues = True
 
     # Check daemon
     if is_daemon_running():
         print("[OK] Daemon running")
     else:
         print("[!!] Daemon not running")
-        issues.append("Start with: chrome-log start")
+        print("     → Run: chrome-log start")
+        has_issues = True
 
     # Check status server
     if is_status_server_running():
         print(f"[OK] Status page at http://localhost:{STATUS_PORT}/")
     else:
         print("[--] Status page not running")
+        print("     → Will start with daemon")
 
     # Check log directory
     if LOG_DIR.exists():
         print(f"[OK] Log directory exists: {LOG_DIR}")
     else:
         print(f"[--] Log directory missing: {LOG_DIR}")
+        print("     → Will create on first start")
 
     # Check log file
     if LOG_FILE.exists():
@@ -550,19 +606,19 @@ def cmd_doctor(args):
     # Check pause state
     if is_paused():
         print("[!!] Capture is PAUSED")
-        issues.append("Resume with: chrome-log unpause")
+        print("     → Run: chrome-log unpause")
+        has_issues = True
 
     # Check launchd plist
     if PLIST_PATH.exists():
         print("[OK] launchd plist installed")
     else:
-        print("[--] launchd plist not installed (will create on start)")
+        print("[--] launchd plist not installed")
+        print("     → Will create on first start")
 
     print("")
-    if issues:
-        print("Issues:")
-        for issue in issues:
-            print(f"  - {issue}")
+    if has_issues:
+        print("Fix the issues above to get started.")
         return 1
     else:
         print("All checks passed!")
@@ -609,7 +665,8 @@ def main():
     subparsers = parser.add_subparsers(dest='command', help='Commands')
 
     # start
-    subparsers.add_parser('start', help='Start daemon and status server')
+    start_parser = subparsers.add_parser('start', help='Start daemon and status server')
+    start_parser.add_argument('--no-open', action='store_true', help='Don\'t open status page in browser')
 
     # stop
     subparsers.add_parser('stop', help='Stop daemon')
@@ -671,4 +728,11 @@ def main():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        print("\nInterrupted")
+        sys.exit(130)
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
