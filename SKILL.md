@@ -5,11 +5,22 @@ Capture and analyze Chrome network requests for reverse-engineering APIs.
 ## Quick Start
 
 ```bash
-chrome-debug           # Start Chrome with debugging (purple icon)
+chrome-debug           # Start Chrome with debugging (cyan/magenta icon)
 chrome-log start       # Start capture daemon (opens status page)
 # Browse in Chrome Debug, then query:
 chrome-log tail -n 10  # Recent requests
 ```
+
+## Opening URLs (for Claude)
+
+When you need to open a URL and see what requests it makes:
+
+```bash
+browse "https://example.com"    # Opens in Chrome Debug (traffic captured)
+chrome-log tail -n 10           # See what it called
+```
+
+**Don't use** `open URL` — that goes to default browser and isn't captured.
 
 ## Triggers
 
