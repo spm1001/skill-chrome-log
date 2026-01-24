@@ -75,6 +75,19 @@ Each line in `requests.jsonl`:
 
 **Chrome Debug is not a default browser:** The Info.plist deliberately omits URL handlers (`CFBundleURLTypes`). Chrome Debug is a developer tool you launch explicitly via `chrome-debug` or `browse URL`, not a browser for daily use. Making it a default browser candidate would mean every clicked link opens with debug capture running.
 
+## Related: webctl Fork
+
+webctl integration requires our fork at `~/Repos/webctl` which adds CDP endpoint support.
+
+Install with: `uv tool install ~/Repos/webctl --force`
+
+Config at: `~/Library/Application Support/webctl/config.json`
+```json
+{"cdp_endpoint": "http://localhost:9222"}
+```
+
+See `references/WEBCTL_INTEGRATION.md` for full workflow.
+
 ## Troubleshooting
 
 **Orphaned launchd plists:** If you previously used an older version, you may have orphaned `com.modha.chrome-log.plist` in `~/Library/LaunchAgents/`. The current version uses `local.chrome-log.plist`. Safe to delete the old one:

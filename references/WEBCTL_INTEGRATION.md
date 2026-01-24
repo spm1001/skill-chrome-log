@@ -162,35 +162,36 @@ webctl navigate "https://some-app.google.com"
 chrome-log list --filter "api\|rpc\|batch" --limit 30
 ```
 
-## Fragility Warning
+## Maintenance
 
-**The cdp_endpoint config is a local modification to webctl.** It was added by editing the uv-installed package directly:
+**CDP support is maintained in our webctl fork:** `~/Repos/webctl`
 
+This fork adds `cdp_endpoint` config support, which is NOT in upstream webctl.
+
+### Updating webctl
+
+Always install from the fork, not PyPI:
+
+```bash
+uv tool install ~/Repos/webctl --force
 ```
-/Users/modha/.local/share/uv/tools/webctl/.../webctl/config.py
-/Users/modha/.local/share/uv/tools/webctl/.../webctl/daemon/session_manager.py
-```
 
-**This will be lost on `uv tool upgrade webctl`.**
-
-### Before upgrading webctl
-
-1. Check if the fork exists: `ls ~/Repos/webctl`
-2. If not, create it first (bead `itv-slides-formatter-fs4` tracks this)
-3. Then upgrade: `uv tool install ~/Repos/webctl`
+Do NOT use `uv tool upgrade webctl` — that would pull from PyPI and lose CDP support.
 
 ### The modification (for reference)
 
 In `config.py`:
 ```python
-cdp_endpoint: str | None = None
+cdp_endpoint: str | None = None  # e.g., "http://localhost:9222"
 ```
 
 In `session_manager.py` `create_session()`:
 ```python
-if self.config.cdp_endpoint:
-    browser = await playwright.chromium.connect_over_cdp(self.config.cdp_endpoint)
-    context = browser.contexts[0]  # Use existing context
+config = WebctlConfig.load()
+if config.cdp_endpoint:
+    browser = await self._playwright.chromium.connect_over_cdp(config.cdp_endpoint)
+    contexts = browser.contexts
+    context = contexts[0] if contexts else await browser.new_context(...)
 else:
     # ... normal launch
 ```

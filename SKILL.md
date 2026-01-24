@@ -141,20 +141,73 @@ Run `chrome-log doctor` - it shows issues with fix commands.
 
 ## webctl Integration (JS-Rendered Pages)
 
-For JS-rendered docs (Google Apps Script reference, etc.), combine chrome-log with webctl:
+For JS-rendered pages, combine chrome-log capture with webctl browser control.
+
+### Context Management (Critical)
+
+Both accessibility trees (webctl snapshot) and network logs (chrome-log) can be huge. **Never dump inline without checking size first.**
+
+| Scenario | Pattern |
+|----------|---------|
+| Targeted queries (buttons, forms, specific text) | Inline with filters |
+| Exhaustive analysis (full DOM, all traffic) | File deposit + grep |
+
+### Pattern 1: Targeted Queries (Inline, <50 elements)
+
+webctl has powerful filters that return small, usable output:
 
 ```bash
-chrome-debug && chrome-log start
-webctl start                    # Connects to Chrome Debug via CDP
-webctl navigate "https://..."   # Go to page
-sleep 3                         # Wait for JS
-webctl snapshot > /tmp/page.txt # Deposit DOM to file
-grep "methodName" /tmp/page.txt # Query without flooding context
+webctl snapshot --count               # Check size FIRST
+webctl snapshot --interactive-only    # Just buttons/links/inputs
+webctl snapshot --within "role=main"  # Skip nav, footer, ads
+webctl snapshot --limit 30            # First 30 elements
+webctl snapshot --grep "login"        # Filter by text
 ```
 
-**See:** `references/WEBCTL_INTEGRATION.md` for full workflow and setup.
+If `--count` shows <50 elements, inline is fine. Otherwise, use deposit.
 
-**Fragility:** webctl CDP config is a local mod — lost on `uv tool upgrade`.
+### Pattern 2: File Deposit for Large Pages
+
+```bash
+# Deposit, don't inline
+webctl snapshot > /tmp/page.txt
+wc -l /tmp/page.txt                   # See size
+grep -i "methodName" /tmp/page.txt    # Query what you need
+```
+
+### Pattern 3: Combined webctl + chrome-log
+
+Full workflow for reverse-engineering a JS-rendered site:
+
+```bash
+# Setup (once per session)
+chrome-debug && chrome-log start
+webctl start                          # Connects via CDP
+
+# Navigate and wait for JS
+webctl navigate "https://developers.google.com/apps-script/reference/slides/slide"
+sleep 3
+
+# Deposit both to files - don't inline large output
+webctl snapshot > /tmp/page.txt
+chrome-log tail -n 50 > /tmp/traffic.jsonl
+
+# Query files, not inline dumps
+wc -l /tmp/page.txt /tmp/traffic.jsonl   # Size check
+grep -i "methodName" /tmp/page.txt        # Find specific content
+jq 'select(.url | contains("api"))' /tmp/traffic.jsonl  # API calls only
+```
+
+### Setup
+
+webctl connects to Chrome Debug via CDP endpoint configured at:
+`~/Library/Application Support/webctl/config.json`
+
+```json
+{"cdp_endpoint": "http://localhost:9222"}
+```
+
+This is maintained in our webctl fork at `~/Repos/webctl`.
 
 ## Anti-Patterns
 
