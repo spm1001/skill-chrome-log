@@ -139,6 +139,23 @@ Run `chrome-log doctor` - it shows issues with fix commands.
 | Status page blank | Check daemon: `chrome-log status` |
 | Missing cookies | Cookies captured via `Cookie` header and `cookies` field |
 
+## webctl Integration (JS-Rendered Pages)
+
+For JS-rendered docs (Google Apps Script reference, etc.), combine chrome-log with webctl:
+
+```bash
+chrome-debug && chrome-log start
+webctl start                    # Connects to Chrome Debug via CDP
+webctl navigate "https://..."   # Go to page
+sleep 3                         # Wait for JS
+webctl snapshot > /tmp/page.txt # Deposit DOM to file
+grep "methodName" /tmp/page.txt # Query without flooding context
+```
+
+**See:** `references/WEBCTL_INTEGRATION.md` for full workflow and setup.
+
+**Fragility:** webctl CDP config is a local mod — lost on `uv tool upgrade`.
+
 ## Anti-Patterns
 
 **Don't dump entire log** - always filter:
