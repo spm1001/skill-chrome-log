@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chrome Network Log</title>
+    <style>
+        :root {
+            --bg: #0f0f1a;
+            --bg-card: #1a1a2e;
+            --bg-hover: #252540;
+            --text: #e8e8e8;
+            --text-dim: #888;
+            --accent: #e94560;
+            --success: #4ade80;
+            --warning: #fbbf24;
+            --error: #f87171;
+            --border: #333;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', monospace;
+            font-size: 13px;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        header {
+            background: var(--bg-card);
+            padding: 12px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        h1 {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--accent);
+        }
+
+        .status-bar {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex: 1;
+        }
+
+        .stat {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            color: var(--text-dim);
+        }
+
+        .stat-value {
+            color: var(--text);
+            font-weight: 500;
+        }
+
+        .controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        button {
+            background: var(--bg-hover);
+            color: var(--text);
+            border: 1px solid var(--border);
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 12px;
+            transition: all 0.15s;
+        }
+
+        button:hover {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+
+        button.active {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+
+        button.paused {
+            background: var(--warning);
+            border-color: var(--warning);
+            color: #000;
+        }
+
+        .filters {
+            background: var(--bg-card);
+            padding: 10px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .filter-group label {
+            color: var(--text-dim);
+            font-size: 11px;
+            text-transform: uppercase;
+        }
+
+        input, select {
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 12px;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        input[type="text"] {
+            width: 200px;
+        }
+
+        .request-list {
+            padding: 10px 20px;
+        }
+
+        .request-row {
+            display: grid;
+            grid-template-columns: 70px 60px 50px 1fr 80px 100px;
+            gap: 10px;
+            padding: 8px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            align-items: center;
+        }
+
+        .request-row:hover {
+            background: var(--bg-hover);
+        }
+
+        .request-row.expanded {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-bottom: none;
+            border-radius: 4px 4px 0 0;
+        }
+
+        .request-id {
+            color: var(--text-dim);
+            font-size: 11px;
+        }
+
+        .request-method {
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .request-method.GET { color: var(--success); }
+        .request-method.POST { color: var(--warning); }
+        .request-method.PUT { color: #60a5fa; }
+        .request-method.DELETE { color: var(--error); }
+        .request-method.PATCH { color: #c084fc; }
+
+        .request-status {
+            font-weight: 500;
+        }
+
+        .status-2xx { color: var(--success); }
+        .status-3xx { color: #60a5fa; }
+        .status-4xx { color: var(--warning); }
+        .status-5xx { color: var(--error); }
+
+        .request-url {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .request-size {
+            color: var(--text-dim);
+            text-align: right;
+            font-size: 11px;
+        }
+
+        .request-time {
+            color: var(--text-dim);
+            font-size: 11px;
+            text-align: right;
+        }
+
+        .request-detail {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-top: none;
+            border-radius: 0 0 4px 4px;
+            padding: 15px;
+            margin-bottom: 10px;
+            display: none;
+        }
+
+        .request-detail.visible {
+            display: block;
+        }
+
+        .detail-section {
+            margin-bottom: 15px;
+        }
+
+        .detail-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .detail-section h3 {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: var(--accent);
+            margin-bottom: 8px;
+            letter-spacing: 0.5px;
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: 150px 1fr;
+            gap: 4px 10px;
+            font-size: 12px;
+        }
+
+        .detail-key {
+            color: var(--text-dim);
+        }
+
+        .detail-value {
+            word-break: break-all;
+        }
+
+        .body-content {
+            background: var(--bg);
+            padding: 10px;
+            border-radius: 4px;
+            max-height: 300px;
+            overflow: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            font-size: 11px;
+        }
+
+        .refresh-indicator {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .refresh-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--success);
+            animation: pulse 2s infinite;
+        }
+
+        .refresh-dot.paused {
+            background: var(--warning);
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-dim);
+        }
+
+        .empty-state h2 {
+            font-size: 18px;
+            margin-bottom: 10px;
+            color: var(--text);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Chrome Network Log</h1>
+        <div class="status-bar">
+            <div class="stat">
+                <span>Requests:</span>
+                <span class="stat-value" id="request-count">-</span>
+            </div>
+            <div class="stat">
+                <span>Size:</span>
+                <span class="stat-value" id="log-size">-</span>
+            </div>
+            <div class="refresh-indicator">
+                <div class="refresh-dot" id="refresh-dot"></div>
+                <span id="refresh-label">Auto-refresh</span>
+            </div>
+        </div>
+        <div class="controls">
+            <button id="pause-btn">Pause</button>
+            <select id="refresh-rate">
+                <option value="2000">2s</option>
+                <option value="5000" selected>5s</option>
+                <option value="10000">10s</option>
+                <option value="0">Manual</option>
+            </select>
+            <button id="refresh-btn">Refresh</button>
+        </div>
+    </header>
+
+    <div class="filters">
+        <div class="filter-group">
+            <label>URL</label>
+            <input type="text" id="filter-url" placeholder="Filter by URL...">
+        </div>
+        <div class="filter-group">
+            <label>Tab</label>
+            <select id="filter-tab">
+                <option value="">All tabs</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label>Method</label>
+            <select id="filter-method">
+                <option value="">All</option>
+                <option value="GET">GET</option>
+                <option value="POST">POST</option>
+                <option value="PUT">PUT</option>
+                <option value="DELETE">DELETE</option>
+                <option value="PATCH">PATCH</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="request-list" id="request-list">
+        <div class="empty-state">
+            <h2>No requests yet</h2>
+            <p>Browse websites with Chrome Debug to capture network requests</p>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let requests = [];
+        let expandedId = null;
+        let isPaused = false;
+        let refreshInterval = null;
+
+        // Elements
+        const requestList = document.getElementById('request-list');
+        const pauseBtn = document.getElementById('pause-btn');
+        const refreshBtn = document.getElementById('refresh-btn');
+        const refreshRate = document.getElementById('refresh-rate');
+        const refreshDot = document.getElementById('refresh-dot');
+        const refreshLabel = document.getElementById('refresh-label');
+        const requestCount = document.getElementById('request-count');
+        const logSize = document.getElementById('log-size');
+        const filterUrl = document.getElementById('filter-url');
+        const filterTab = document.getElementById('filter-tab');
+        const filterMethod = document.getElementById('filter-method');
+
+        // Format bytes
+        function formatSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
+        // Format time
+        function formatTime(ts) {
+            if (!ts) return '-';
+            const date = new Date(ts);
+            return date.toLocaleTimeString();
+        }
+
+        // Get status class
+        function getStatusClass(status) {
+            if (!status) return '';
+            const s = String(status);
+            if (s.startsWith('2')) return 'status-2xx';
+            if (s.startsWith('3')) return 'status-3xx';
+            if (s.startsWith('4')) return 'status-4xx';
+            if (s.startsWith('5')) return 'status-5xx';
+            return '';
+        }
+
+        // Render request row
+        function renderRow(req) {
+            const isExpanded = req.id === expandedId;
+            return `
+                <div class="request-row ${isExpanded ? 'expanded' : ''}" data-id="${req.id}">
+                    <span class="request-id">${req.id?.substring(0, 8) || '-'}</span>
+                    <span class="request-method ${req.method}">${req.method || '-'}</span>
+                    <span class="request-status ${getStatusClass(req.status)}">${req.status || '-'}</span>
+                    <span class="request-url" title="${req.url}">${req.url || '-'}</span>
+                    <span class="request-size">${formatSize(req.size || 0)}</span>
+                    <span class="request-time">${formatTime(req.ts)}</span>
+                </div>
+                <div class="request-detail ${isExpanded ? 'visible' : ''}" id="detail-${req.id}">
+                    Loading...
+                </div>
+            `;
+        }
+
+        // Render request detail
+        function renderDetail(req) {
+            let html = '';
+
+            // General
+            html += `
+                <div class="detail-section">
+                    <h3>General</h3>
+                    <div class="detail-grid">
+                        <span class="detail-key">URL</span>
+                        <span class="detail-value">${req.url || '-'}</span>
+                        <span class="detail-key">Method</span>
+                        <span class="detail-value">${req.method || '-'}</span>
+                        <span class="detail-key">Status</span>
+                        <span class="detail-value">${req.status || '-'} (${req.mime || 'unknown'})</span>
+                        <span class="detail-key">Size</span>
+                        <span class="detail-value">${formatSize(req.size || 0)}</span>
+                        <span class="detail-key">Tab</span>
+                        <span class="detail-value">${req.tab?.url || '-'}</span>
+                    </div>
+                </div>
+            `;
+
+            // Request headers
+            if (req.requestHeaders && Object.keys(req.requestHeaders).length > 0) {
+                html += `
+                    <div class="detail-section">
+                        <h3>Request Headers</h3>
+                        <div class="detail-grid">
+                            ${Object.entries(req.requestHeaders).map(([k, v]) => `
+                                <span class="detail-key">${k}</span>
+                                <span class="detail-value">${v}</span>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Response headers
+            if (req.responseHeaders && Object.keys(req.responseHeaders).length > 0) {
+                html += `
+                    <div class="detail-section">
+                        <h3>Response Headers</h3>
+                        <div class="detail-grid">
+                            ${Object.entries(req.responseHeaders).map(([k, v]) => `
+                                <span class="detail-key">${k}</span>
+                                <span class="detail-value">${v}</span>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Request body
+            if (req.requestBody) {
+                let body = req.requestBody;
+                try {
+                    body = JSON.stringify(JSON.parse(body), null, 2);
+                } catch (e) {}
+                html += `
+                    <div class="detail-section">
+                        <h3>Request Body</h3>
+                        <div class="body-content">${escapeHtml(body)}</div>
+                    </div>
+                `;
+            }
+
+            // Response body
+            if (req.responseBody) {
+                let body = req.responseBody;
+                try {
+                    body = JSON.stringify(JSON.parse(body), null, 2);
+                } catch (e) {}
+                html += `
+                    <div class="detail-section">
+                        <h3>Response Body</h3>
+                        <div class="body-content">${escapeHtml(body)}</div>
+                    </div>
+                `;
+            }
+
+            return html;
+        }
+
+        // Escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Fetch status
+        async function fetchStatus() {
+            try {
+                const resp = await fetch('/api/status');
+                const data = await resp.json();
+
+                isPaused = data.paused;
+                pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
+                pauseBtn.classList.toggle('paused', isPaused);
+                refreshDot.classList.toggle('paused', isPaused);
+                refreshLabel.textContent = isPaused ? 'Paused' : 'Auto-refresh';
+
+                requestCount.textContent = data.requestCount.toLocaleString();
+                logSize.textContent = formatSize(data.logSize);
+            } catch (e) {
+                console.error('Failed to fetch status:', e);
+            }
+        }
+
+        // Fetch requests
+        async function fetchRequests() {
+            try {
+                const params = new URLSearchParams();
+                params.set('limit', '100');
+
+                if (filterUrl.value) params.set('filter', filterUrl.value);
+                if (filterTab.value) params.set('tab', filterTab.value);
+                if (filterMethod.value) params.set('method', filterMethod.value);
+
+                const resp = await fetch('/api/requests?' + params);
+                requests = await resp.json();
+
+                renderRequests();
+            } catch (e) {
+                console.error('Failed to fetch requests:', e);
+            }
+        }
+
+        // Fetch tabs
+        async function fetchTabs() {
+            try {
+                const resp = await fetch('/api/tabs');
+                const tabs = await resp.json();
+
+                filterTab.innerHTML = '<option value="">All tabs</option>';
+                for (const tab of tabs) {
+                    const opt = document.createElement('option');
+                    opt.value = tab.url;
+                    opt.textContent = tab.url.length > 50 ? tab.url.substring(0, 50) + '...' : tab.url;
+                    filterTab.appendChild(opt);
+                }
+            } catch (e) {
+                console.error('Failed to fetch tabs:', e);
+            }
+        }
+
+        // Fetch request detail
+        async function fetchDetail(id) {
+            try {
+                const resp = await fetch('/api/request?id=' + encodeURIComponent(id));
+                const req = await resp.json();
+
+                const detail = document.getElementById('detail-' + id);
+                if (detail) {
+                    detail.innerHTML = renderDetail(req);
+                }
+            } catch (e) {
+                console.error('Failed to fetch detail:', e);
+            }
+        }
+
+        // Render requests
+        function renderRequests() {
+            if (requests.length === 0) {
+                requestList.innerHTML = `
+                    <div class="empty-state">
+                        <h2>No requests yet</h2>
+                        <p>Browse websites with Chrome Debug to capture network requests</p>
+                    </div>
+                `;
+                return;
+            }
+
+            requestList.innerHTML = requests.map(renderRow).join('');
+
+            // Add click handlers
+            document.querySelectorAll('.request-row').forEach(row => {
+                row.addEventListener('click', () => {
+                    const id = row.dataset.id;
+                    const detail = document.getElementById('detail-' + id);
+
+                    if (expandedId === id) {
+                        // Collapse
+                        expandedId = null;
+                        row.classList.remove('expanded');
+                        detail.classList.remove('visible');
+                    } else {
+                        // Collapse previous
+                        if (expandedId) {
+                            const prevRow = document.querySelector(`.request-row[data-id="${expandedId}"]`);
+                            const prevDetail = document.getElementById('detail-' + expandedId);
+                            if (prevRow) prevRow.classList.remove('expanded');
+                            if (prevDetail) prevDetail.classList.remove('visible');
+                        }
+
+                        // Expand new
+                        expandedId = id;
+                        row.classList.add('expanded');
+                        detail.classList.add('visible');
+                        fetchDetail(id);
+                    }
+                });
+            });
+        }
+
+        // Pause/resume
+        async function togglePause() {
+            try {
+                const endpoint = isPaused ? '/api/unpause' : '/api/pause';
+                await fetch(endpoint, { method: 'POST' });
+                await fetchStatus();
+            } catch (e) {
+                console.error('Failed to toggle pause:', e);
+            }
+        }
+
+        // Refresh
+        function refresh() {
+            fetchStatus();
+            fetchRequests();
+        }
+
+        // Setup refresh interval
+        function setupRefresh() {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+                refreshInterval = null;
+            }
+
+            const rate = parseInt(refreshRate.value);
+            if (rate > 0) {
+                refreshInterval = setInterval(refresh, rate);
+            }
+        }
+
+        // Event handlers
+        pauseBtn.addEventListener('click', togglePause);
+        refreshBtn.addEventListener('click', refresh);
+        refreshRate.addEventListener('change', setupRefresh);
+
+        // Debounced filter
+        let filterTimeout = null;
+        function onFilterChange() {
+            if (filterTimeout) clearTimeout(filterTimeout);
+            filterTimeout = setTimeout(fetchRequests, 300);
+        }
+
+        filterUrl.addEventListener('input', onFilterChange);
+        filterTab.addEventListener('change', fetchRequests);
+        filterMethod.addEventListener('change', fetchRequests);
+
+        // Initial load
+        fetchStatus();
+        fetchRequests();
+        fetchTabs();
+        setupRefresh();
+    </script>
+</body>
+</html>
