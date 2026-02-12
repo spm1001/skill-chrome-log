@@ -89,13 +89,32 @@ def is_paused() -> bool:
     return PAUSE_FILE.exists()
 
 
-def require_chrome_debug() -> bool:
-    """Check Chrome is running, print helpful error if not. Returns True if running."""
+def start_chrome_debug() -> bool:
+    """Launch Chrome with debug profile if not already running. Returns True on success."""
     if is_chrome_debug_running():
         return True
-    print("Chrome Debug is not running.")
-    print("Start it with: chrome-debug")
+    print("Starting Chrome Debug...", file=sys.stderr)
+    subprocess.Popen(
+        ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+         '--remote-debugging-port=9222',
+         '--user-data-dir=' + str(Path.home() / '.chrome-debug'),
+         '--no-default-browser-check'],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+    # Wait for port to be ready
+    import time
+    for _ in range(30):
+        if is_chrome_debug_running():
+            print("Chrome Debug started.", file=sys.stderr)
+            return True
+        time.sleep(0.5)
+    print("Failed to start Chrome Debug.", file=sys.stderr)
     return False
+
+
+def require_chrome_debug() -> bool:
+    """Ensure Chrome is running, starting it if needed. Returns True if running."""
+    return start_chrome_debug()
 
 
 def require_daemon() -> bool:
