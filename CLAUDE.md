@@ -61,7 +61,7 @@ Each line in `requests.jsonl`:
 
 ## Testing
 
-1. Start Chrome Debug: `chrome-debug`
+1. Chrome Debug should already be running (it's the daily driver). If not: `open -a "Chrome Debug"`
 2. Start daemon: `chrome-log start`
 3. Browse sites, generate traffic
 4. Query: `chrome-log tail -n 10`
@@ -73,7 +73,13 @@ Each line in `requests.jsonl`:
 
 **Hue-shifted icon:** Chrome Debug uses a 180° hue-shifted Chrome icon (cyan/magenta instead of red/green/blue) for visual distinction. Not purple, not inverted - specifically hue rotation via ImageMagick `-modulate 100,100,50`.
 
-**Chrome Debug is not a default browser:** The Info.plist deliberately omits URL handlers (`CFBundleURLTypes`). Chrome Debug is a developer tool you launch explicitly via `chrome-debug` or `browse URL`, not a browser for daily use. Making it a default browser candidate would mean every clicked link opens with debug capture running.
+**Chrome Debug IS the daily driver browser (Feb 2026):** The original design had Chrome Debug as a separate developer tool with no URL handlers. This changed after benchmarking showed Chrome blocks `--remote-debugging-port` on the default profile (it requires `--user-data-dir`). Since CDP access to the real browser was the goal, Chrome Debug became the daily driver:
+- `~/Applications/Chrome Debug.app` wraps Chrome with `--remote-debugging-port=9222 --user-data-dir=~/.chrome-debug`
+- Info.plist now includes `CFBundleURLTypes` for http/https (can be set as default browser)
+- Profile at `~/.chrome-debug/` has Google Sync, extensions, full auth state
+- CDP on port 9222 is always available (localhost-only binding)
+- Both `passe` (CDP CLI) and claude-in-chrome (MCP extension) connect to the same instance
+- The chrome-log daemon captures network traffic from daily browsing — be aware of disk usage
 
 ## Related: webctl Fork
 
