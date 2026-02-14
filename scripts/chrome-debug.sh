@@ -17,7 +17,7 @@ set -e
 
 CHROME_APP="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 DEBUG_PORT=9222
-STATUS_PORT=9223
+STATUS_PORT=9224
 USER_DATA_DIR="$HOME/.chrome-debug"
 
 # Check if Chrome is already running in debug mode

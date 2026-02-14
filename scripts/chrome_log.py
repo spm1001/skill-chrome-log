@@ -38,7 +38,7 @@ DAEMON_LOG = LOG_DIR / 'daemon.log'
 PLIST_NAME = 'local.chrome-log'
 PLIST_PATH = Path.home() / 'Library' / 'LaunchAgents' / f'{PLIST_NAME}.plist'
 CDP_PORT = 9222
-STATUS_PORT = 9223
+STATUS_PORT = 9224
 
 
 def get_script_dir() -> Path:

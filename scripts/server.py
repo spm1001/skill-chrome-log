@@ -2,10 +2,10 @@
 """
 Chrome log status page server.
 
-Serves a live dashboard at localhost:9223 for viewing captured requests.
+Serves a live dashboard at localhost:9224 for viewing captured requests.
 
 Usage:
-    python server.py [--port 9223]
+    python server.py [--port 9224]
 """
 
 import argparse
@@ -25,7 +25,7 @@ LOG_FILE = LOG_DIR / 'requests.jsonl'
 PAUSE_FILE = LOG_DIR / '.paused'
 ASSETS_DIR = Path(__file__).parent.parent / 'assets'
 
-DEFAULT_PORT = 9223
+DEFAULT_PORT = 9224
 
 
 class StatusHandler(SimpleHTTPRequestHandler):
