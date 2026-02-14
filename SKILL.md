@@ -1,6 +1,6 @@
 ---
 name: chrome-log
-description: Capture and analyze Chrome network requests for reverse-engineering APIs. Triggers on 'what API calls', 'network log', 'captured requests', 'reverse engineer API', 'chrome debug', 'capture traffic'.
+description: Capture and analyze Chrome network requests for reverse-engineering APIs. Use when debugging API calls, inspecting network traffic, or reverse-engineering web service endpoints via Chrome Debug's CDP connection.
 ---
 
 # Chrome Network Logger
